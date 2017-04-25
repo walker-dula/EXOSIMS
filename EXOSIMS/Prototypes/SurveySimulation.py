@@ -197,8 +197,6 @@ class SurveySimulation(object):
         Obs = self.Observatory
         TK = self.TimeKeeping
         
-        Logger.info('run_sim beginning')
-        
         # initialize lists updated later
         self.fullSpectra = np.zeros(SU.nPlans, dtype=int)
         self.partialSpectra = np.zeros(SU.nPlans, dtype=int)
@@ -223,14 +221,20 @@ class SurveySimulation(object):
         else:
             charMode = OS.observingModes[0]
         
-        # loop until mission is finished
+        # Begin Survey, and loop until mission is finished
+        Logger.info('OB%s: survey beginning.'%(TK.OBnumber+1))
+        print 'OB%s: survey beginning.'%(TK.OBnumber+1)
         sInd = None
+        cnt = 0
         while not TK.mission_is_over():
             
             # Acquire the NEXT TARGET star index and create DRM
+            TK.obsStart = TK.currentTimeNorm.to('day')
             DRM, sInd, t_det = self.next_target(sInd, detMode)
+            assert t_det !=0, "Integration time can't be 0."
             
             if sInd is not None:
+                cnt += 1
                 # get the index of the selected target for the extended list
                 if TK.currentTimeNorm > TK.missionLife and self.starExtended.shape[0] == 0:
                     for i in range(len(self.DRM)):
@@ -238,14 +242,16 @@ class SurveySimulation(object):
                             self.starExtended = np.hstack((self.starExtended, self.DRM[i]['star_ind']))
                             self.starExtended = np.unique(self.starExtended)
                 
-                # Beginning of observation, create DRM and start to populate it
-                obsBegin = TK.currentTimeNorm.to('day')
-                Logger.info('current time is %r' % obsBegin)
-                print 'Current mission time: ', obsBegin
+                # Beginning of observation, start to populate DRM
+                DRM['OB'] = TK.OBnumber
                 DRM['star_ind'] = sInd
                 DRM['arrival_time'] = TK.currentTimeNorm.to('day').value
                 pInds = np.where(SU.plan2star == sInd)[0]
                 DRM['plan_inds'] = pInds.astype(int).tolist()
+                Logger.info('  Observation #%s, target #%s/%s with %s planet(s), mission time: %s'\
+                        %(cnt, sInd, TL.nStars, len(pInds), TK.obsStart.round(2)))
+                print '  Observation #%s, target #%s/%s with %s planet(s), mission time: %s'\
+                        %(cnt, sInd, TL.nStars, len(pInds), TK.obsStart.round(2))
                 
                 # PERFORM DETECTION and populate revisit list attribute.
                 # First store fEZ, dMag, WA
@@ -271,8 +277,9 @@ class SurveySimulation(object):
                 DRM['char_mode'] = dict(charMode)
                 del DRM['char_mode']['inst'], DRM['char_mode']['syst']
                 characterized, charSNR, t_char = self.observation_characterization(sInd, charMode)
+                assert t_char !=0, "Integration time can't be 0."
                 # Update the occulter wet mass
-                if OS.haveOcculter == True:
+                if OS.haveOcculter == True and t_char is not None:
                     DRM = self.update_occulter_mass(DRM, sInd, t_char, 'char')
                 # if any false alarm, store its characterization status, fEZ, dMag, and WA
                 if FA == True:
@@ -282,19 +289,26 @@ class SurveySimulation(object):
                     DRM['FA_dMag'] = self.lastDetected[sInd,2][-1]
                     DRM['FA_WA'] = self.lastDetected[sInd,3][-1]
                 # Populate the DRM with characterization results
-                DRM['char_time'] = t_char.to('day').value
+                DRM['char_time'] = t_char.to('day').value if t_char else 0.
                 DRM['char_status'] = characterized
                 DRM['char_SNR'] = charSNR
                 
-                # update target time
-                self.starTimes[sInd] = TK.currentTimeNorm
-                
-                # append result values to self.DRM
+                # Append result values to self.DRM
                 self.DRM.append(DRM)
                 
-                # with occulter, if spacecraft fuel is depleted, exit loop
+                # Calculate observation end time, and update target time
+                TK.obsEnd = TK.currentTimeNorm.to('day')
+                self.starTimes[sInd] = TK.obsEnd
+                
+                # With prototype TimeKeeping, if no OB duration was specified, advance
+                # to the next OB with timestep equivalent to time spent on one target
+                if np.isinf(TK.OBduration):
+                    obsLength = (TK.obsEnd-TK.obsStart).to('day')
+                    TK.next_observing_block(dt=obsLength)
+                
+                # With occulter, if spacecraft fuel is depleted, exit loop
                 if OS.haveOcculter and Obs.scMass < Obs.dryMass:
-                    print 'Total fuel mass exceeded at %r' % TK.currentTimeNorm
+                    print 'Total fuel mass exceeded at %s' %TK.obsEnd.round(2)
                     break
         
         mission_end = "Simulation finishing OK. Results stored in SurveySimulation.DRM"
@@ -339,6 +353,7 @@ class SurveySimulation(object):
         
         # Allocate settling time + overhead time
         TK.allocate_time(Obs.settlingTime + mode['syst']['ohTime'])
+        
         # In case of an occulter, initialize slew time factor
         # (add transit time and reduce starshade mass)
         if OS.haveOcculter == True:
@@ -355,50 +370,67 @@ class SurveySimulation(object):
             tovisit = np.zeros(TL.nStars, dtype=bool)
             sInds = np.arange(TL.nStars)
             
-            # 1/ find spacecraft orbital START positions and filter out unavailable 
+            # 1/ Find spacecraft orbital START positions and filter out unavailable 
             # targets. If occulter, each target has its own START position.
+            sd = None
+            # ===========================================================================================================
+            # find angle between old and new stars, default to pi/2 for first target
+            if old_sInd is None:
+                sd = np.zeros(TL.nStars)*u.rad
+            else:
+                # position vector of previous target star
+                r_old = Obs.starprop(TL, old_sInd, TK.currentTimeAbs)[0]
+                u_old = r_old.value/np.linalg.norm(r_old)
+                # position vector of new target stars
+                r_new = Obs.starprop(TL, sInds, TK.currentTimeAbs)
+                u_new = (r_new.value.T/np.linalg.norm(r_new,axis=1)).T
+                # angle between old and new stars
+                sd = np.arccos(np.clip(np.dot(u_old,u_new.T),-1,1))*u.rad
+
             if OS.haveOcculter == True:
                 # find angle between old and new stars, default to pi/2 for first target
-                if old_sInd is None:
-                    sd = np.zeros(TL.nStars)*u.rad
-                else:
-                    # position vector of previous target star
-                    r_old = Obs.starprop(TL, old_sInd, TK.currentTimeAbs)
-                    u_old = r_old/np.sqrt(np.sum(r_old**2))
-                    # position vector of new target stars
-                    r_new = Obs.starprop(TL, sInds, TK.currentTimeAbs)
-                    u_new = r_new/np.sqrt(np.sum(r_new**2))
-                    # angle between old and new stars
-                    sd = np.arccos(np.dot(u_old, u_new.T))[0]
-                    sd[np.where(np.isnan(sd))] = 0.
+                # if old_sInd is None:
+                #     sd = np.zeros(TL.nStars)*u.rad
+                # else:
+                #     # position vector of previous target star
+                #     r_old = Obs.starprop(TL, old_sInd, TK.currentTimeAbs)[0]
+                #     u_old = r_old.value/np.linalg.norm(r_old)
+                #     # position vector of new target stars
+                #     r_new = Obs.starprop(TL, sInds, TK.currentTimeAbs)
+                #     u_new = (r_new.value.T/np.linalg.norm(r_new,axis=1)).T
+                #     # angle between old and new stars
+                #     sd = np.arccos(np.clip(np.dot(u_old,u_new.T),-1,1))*u.rad
                 # calculate slew time
                 slewTime = np.sqrt(slewTime_fac*np.sin(sd/2.))
             
             startTime = TK.currentTimeAbs + slewTime
-            r_sc = Obs.orbit(startTime)
-            kogoodStart = Obs.keepout(TL, sInds, startTime, r_sc, OS.telescopeKeepout)
+            kogoodStart = Obs.keepout(TL, sInds, startTime, OS.telescopeKeepout)
             sInds = sInds[np.where(kogoodStart)[0]]
             
-            # 2/ calculate integration times for the preselected targets, 
-            # and filter out t_tot > integration cutoff
+            # 2/ Calculate integration times for the preselected targets, 
+            # and filter out t_tots > integration cutoff
             if np.any(sInds):
-                fZ = ZL.fZ(TL, sInds, mode['lam'], r_sc[sInds])
+                fZ = ZL.fZ(TL, sInds, mode['lam'], Obs.orbit(startTime[sInds]))
                 fEZ = ZL.fEZ0
-                t_dets[sInds] = OS.calc_maxintTime(TL, sInds, fZ, fEZ, mode)
+                dMag = OS.dMagLim
+                WA = OS.WALim
+                t_dets[sInds] = OS.calc_intTime(TL, sInds, fZ, fEZ, dMag, WA, mode)
                 # include integration time multiplier
-                t_tot = t_dets*mode['timeMultiplier']
-                # total time must be positive and shorter than treshold
-                sInds = np.where((0 < t_tot) & (t_tot < OS.intCutoff))[0]
+                t_tots = t_dets*mode['timeMultiplier']
+                # total time must be positive, shorter than integration cut-off,
+                # and it must not exceed the Observing Block end time 
+                startTimeNorm = (startTime - TK.missionStart).jd*u.day
+                sInds = np.where((t_tots > 0) & (t_tots <= OS.intCutoff) & \
+                        (startTimeNorm + t_tots <= TK.OBendTimes[TK.OBnumber]))[0]
             
-            # 3/ find spacecraft orbital END positions (for each candidate target), 
+            # 3/ Find spacecraft orbital END positions (for each candidate target), 
             # and filter out unavailable targets
             if np.any(sInds):
-                endTime = startTime[sInds] + t_dets[sInds]
-                r_sc = Obs.orbit(endTime)
-                kogoodEnd = Obs.keepout(TL, sInds, endTime, r_sc, OS.telescopeKeepout)
+                endTime = startTime[sInds] + t_tots[sInds]
+                kogoodEnd = Obs.keepout(TL, sInds, endTime, OS.telescopeKeepout)
                 sInds = sInds[np.where(kogoodEnd)[0]]
             
-            # 4/ filter out all previously (more-)visited targets, unless in 
+            # 4/ Filter out all previously (more-)visited targets, unless in 
             # revisit list, with time within some dt of start (+- 1 week)
             if np.any(sInds):
                 tovisit[sInds] = (self.starVisits[sInds] == self.starVisits[sInds].min())
@@ -409,14 +441,10 @@ class SurveySimulation(object):
                     tovisit[ind_rev] = True
                 sInds = np.where(tovisit)[0]
             
-            # 5/ choose best target from remaining
+            # 5/ Choose best target from remaining
             if np.any(sInds):
-                # prototype version choose sInd among targets with highest completeness
-                comps = TL.comp0[sInds]
-                updated = (self.starVisits[sInds] > 0)
-                comps[updated] =  self.Completeness.completeness_update(TL, \
-                        sInds[updated], TK.currentTimeNorm)
-                sInd = np.random.choice(sInds[comps == max(comps)])
+                # choose sInd of next target
+                sInd = self.choose_next_target(old_sInd, sInds, slewTime)
                 # update visited list for current star
                 self.starVisits[sInd] += 1
                 # update visited list for Completeness for current star
@@ -425,19 +453,21 @@ class SurveySimulation(object):
                 t_det = t_dets[sInd]
                 break
             
-            # if no observable target, allocate time and try again
-            # TODO: improve how to deal with no available target
+            # if no observable target, call the TimeKeeping.wait() method
             else:
-                TK.allocate_time(TK.dtAlloc)
+                TK.wait()
             
         else:
             Logger.info('Mission complete: no more time available')
+            print 'Mission complete: no more time available'
             return DRM, None, None
+
+        DRM['slew_angle'] = sd[sInd].to('deg').value
         
         if OS.haveOcculter == True:
             # find values related to slew time
             DRM['slew_time'] = slewTime[sInd].to('day').value
-            DRM['slew_angle'] = sd[sInd].to('deg').value
+            #DRM['slew_angle'] = sd[sInd].to('deg').value
             slew_mass_used = slewTime[sInd]*Obs.defburnPortion*Obs.flowRate
             DRM['slew_dV'] = (slewTime[sInd]*ao*Obs.defburnPortion).to('m/s').value
             DRM['slew_mass_used'] = slew_mass_used.to('kg').value
@@ -447,9 +477,40 @@ class SurveySimulation(object):
             TK.allocate_time(slewTime[sInd])
             if TK.mission_is_over():
                 Logger.info('Mission complete: no more time available')
+                print 'Mission complete: no more time available'
                 return DRM, None, None
         
         return DRM, sInd, t_det
+
+    def choose_next_target(self,old_sInd,sInds,slewTime):
+        """Helper method for method next_target to simplify alternative implementations.
+        
+        Args:
+            old_sInd (integer):
+                Index of the previous target star
+            sInds (integer array):
+                Indices of available targets
+            slewTime (quantity array):
+                slew times to all stars (must be indexed by sInds)
+                
+        Returns:
+            sInd (integer):
+                Index of next target star
+        
+        Given a subset of targets (pre-filtered by method next_target or some other means),
+        select the best next one.  The prototype uses completeness as the sole heuristic.
+        
+        Returns the index sInd of the selected target.
+        
+        """
+        
+        comps = self.TargetList.comp0[sInds]#completeness of each star in TargetList
+        updated = (self.starVisits[sInds] > 0)
+        comps[updated] =  self.Completeness.completeness_update(self.TargetList, \
+                sInds[updated], self.TimeKeeping.currentTimeNorm)
+        sInd = np.random.choice(sInds[comps == max(comps)])
+        
+        return sInd
 
     def observation_detection(self, sInd, t_det, mode):
         """Determines the detection status, and updates the last detected list 
@@ -534,8 +595,8 @@ class SurveySimulation(object):
         det = (detected == 1)
         if np.any(det):
             smin = np.min(SU.s[pInds[det]])
-            Logger.info('Detected planet(s) %r of target %r' % (pInds[det], sInd))
-            print 'Detected planet(s)', pInds[det], 'of target', sInd
+            Logger.info('   - Detected planet(s) %s (%s/%s)'%(pInds[det],len(pInds[det]),len(pInds)))
+            print '   - Detected planet(s) %s (%s/%s)'%(pInds[det],len(pInds[det]),len(pInds))
         
         # Populate the lastDetected array by storing det, fEZ, dMag, and WA
         self.lastDetected[sInd,:] = det, SU.fEZ[pInds].to('1/arcsec2').value, \
@@ -554,8 +615,8 @@ class SurveySimulation(object):
             self.lastDetected[sInd,3] = np.append(self.lastDetected[sInd,3], WA)
             sminFA = np.tan(WA*u.mas)*TL.dist[sInd].to('AU')
             smin = np.minimum(smin,sminFA) if smin is not None else sminFA
-            Logger.info('False Alarm at target %r with WA %r and dMag %r' % (sInd, WA, dMag))
-            print 'False Alarm at target', sInd, 'with WA', WA, 'and dMag', dMag
+            Logger.info('   - False Alarm (WA=%s, dMag=%s)'%(int(WA)*u.mas,round(dMag,1)))
+            print '   - False Alarm (WA=%s, dMag=%s)'%(int(WA)*u.mas,round(dMag,1))
         
         # In both cases (detection or false alarm), schedule a revisit 
         # based on minimum separation
@@ -627,7 +688,7 @@ class SurveySimulation(object):
         # Initialize outputs, and check if any planet to characterize
         characterized = np.zeros(det.size, dtype=int)
         SNR = np.zeros(det.size)
-        t_char = 0.0*u.d
+        t_char = None
         if not np.any(pInds):
             return characterized.tolist(), SNR.tolist(), t_char
         
@@ -640,36 +701,40 @@ class SurveySimulation(object):
         else:
             tochar[det] = np.array([True])
         
-        # Find spacecraft orbital START position and check keepout angle
+        # 1/ Find spacecraft orbital START position and check keepout angle
         if np.any(tochar):
             startTime = TK.currentTimeAbs
-            r_sc = Obs.orbit(startTime)
-            tochar[tochar] = Obs.keepout(TL, sInd, startTime, r_sc, OS.telescopeKeepout)
-        # If any planet to characterize, find the characterization times
+            tochar[tochar] = Obs.keepout(TL, sInd, startTime, OS.telescopeKeepout)
+        
+        # 2/ If any planet to characterize, find the characterization times
         if np.any(tochar):
             # Propagate the whole system to match up with current time
             SU.propag_system(sInd, TK.currentTimeNorm)
             # Calculate characterization times at the detected fEZ, dMag, and WA
-            fZ = ZL.fZ(TL, sInd, mode['lam'], r_sc)
+            fZ = ZL.fZ(TL, sInd, mode['lam'], Obs.orbit(startTime))
             fEZ = self.lastDetected[sInd,1][tochar]/u.arcsec**2
             dMag = self.lastDetected[sInd,2][tochar]
             WA = self.lastDetected[sInd,3][tochar]*u.mas
             t_chars = np.zeros(len(pInds))*u.d
             t_chars[tochar] = OS.calc_intTime(TL, sInd, fZ, fEZ, dMag, WA, mode)
             t_tots = t_chars*(mode['timeMultiplier'])
-            # Filter out planets with t_tots > integration cutoff
-            tochar = (t_tots > 0) & (t_tots < OS.intCutoff)
-        # Is target still observable at the end of any char time?
+            # Total time must be positive, shorter than integration cut-off,
+            # and it must not exceed the Observing Block end time
+            startTimeNorm = (startTime - TK.missionStart).jd*u.day
+            tochar = (t_tots > 0) & (t_tots <= OS.intCutoff) & \
+                    (startTimeNorm + t_tots <= TK.OBendTimes[TK.OBnumber])
+        
+        # 3/ Is target still observable at the end of any char time?
         if np.any(tochar):
-            endTime = TK.currentTimeAbs + t_tots[tochar]
-            r_sc = Obs.orbit(endTime)
-            tochar[tochar] = Obs.keepout(TL, sInd, endTime, r_sc, OS.telescopeKeepout)
-        # If yes, perform the characterization for the maximum char time
+            endTime = startTime + t_tots[tochar]
+            tochar[tochar] = Obs.keepout(TL, sInd, endTime, OS.telescopeKeepout)
+        
+        # 4/ If yes, perform the characterization for the maximum char time
         if np.any(tochar):
             t_char = np.max(t_chars[tochar])
             pIndsChar = pInds[tochar]
-            Logger.info('Characterized planet(s) %r of target %r' % (pIndsChar, sInd))
-            print 'Characterized planet(s)', pIndsChar, 'of target', sInd
+            Logger.info('   - Charact. planet(s) %s (%s/%s)'%(pIndsChar,len(pIndsChar),len(pInds)))
+            print '   - Charact. planet(s) %s (%s/%s)'%(pIndsChar,len(pIndsChar),len(pInds))
             
             # SNR CALCULATION:
             # First, calculate SNR for observable planets (without false alarm)
@@ -766,8 +831,7 @@ class SurveySimulation(object):
         # propagate the system to match up with current time
         SU.propag_system(sInd, TK.currentTimeNorm)
         # find spacecraft position and ZodiacalLight
-        r_sc = Obs.orbit(TK.currentTimeAbs)
-        fZ = ZL.fZ(TL, sInd, mode['lam'], r_sc)
+        fZ = ZL.fZ(TL, sInd, mode['lam'], Obs.orbit(TK.currentTimeAbs))
         # find electron counts for planet, background, and speckle residual 
         C_p, C_b, C_sp = OS.Cp_Cb_Csp(TL, sInd, fZ, \
                 SU.fEZ[pInds], SU.dMag[pInds], SU.WA[pInds], mode)
