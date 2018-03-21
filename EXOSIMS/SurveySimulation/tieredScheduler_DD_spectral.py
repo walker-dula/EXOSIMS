@@ -432,17 +432,6 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                 fZ = ZL.fZ(Obs, TL, sInd, TK.currentTimeAbs, mode)[0]
                 TK.allocate_time(totTime/2.)
             
-            # calculate the false alarm SNR (if any)
-            # SNRfa = []
-            # if pIndsChar[-1] == -1:
-            #     fEZ = fEZs[-1]/u.arcsec**2
-            #     dMag = dMags[-1]
-            #     WA = WAs[-1]*u.arcsec
-            #     C_p, C_b, C_sp = OS.Cp_Cb_Csp(TL, sInd, fZ, fEZ, dMag, WA, mode)
-            #     S = (C_p*intTime).decompose().value
-            #     N = np.sqrt((C_b*intTime + (C_sp*intTime)**2).decompose().value)
-            #     SNRfa = S/N if N > 0 else 0.
-            
             # save all SNRs (planets and FA) to one array
             SNRinds = np.where(det)[0][tochar]
             SNR[SNRinds,:] = SNRplans
