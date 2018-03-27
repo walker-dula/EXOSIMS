@@ -44,7 +44,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
         self.currentSep = Obs.occulterSep
         
         # Choose observing modes selected for detection (default marked with a flag),
-        detMode = filter(lambda mode: mode['detectionMode'] == True, OS.observingModes)[0]
+        detModes = filter(lambda mode: 'imag' in mode['inst']['name'], OS.observingModes)
         # and for characterization (default is first spectro/IFS mode)
         spectroModes = filter(lambda mode: 'spec' in mode['inst']['name'], OS.observingModes)
         if np.any(spectroModes):
@@ -65,7 +65,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
              
             # Acquire the NEXT TARGET star index and create DRM
             prev_occ_sInd = occ_sInd
-            DRM, sInd, occ_sInd, t_det, sd, occ_sInds = self.next_target(sInd, occ_sInd, detMode, charMode)
+            DRM, sInd, occ_sInd, t_det, sd, occ_sInds, dmode = self.next_target(sInd, occ_sInd, detModes, charMode)
             assert t_det !=0, "Integration time can't be 0."
 
             if sInd is not None and (TK.currentTimeAbs + t_det) >= self.occ_arrives and np.any(occ_sInds):
@@ -120,7 +120,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                         DRM['det_fEZ'] = SU.fEZ[pInds].to('1/arcsec2').value.tolist()
                         DRM['det_dMag'] = SU.dMag[pInds].tolist()
                         DRM['det_WA'] = SU.WA[pInds].to('mas').value.tolist()
-                    detected, det_fZ, det_systemParams, det_SNR, FA = self.observation_detection(sInd, t_det, detMode)
+                    detected, det_fZ, det_systemParams, det_SNR, FA = self.observation_detection(sInd, t_det, dmode)
                     if np.any(detected):
                         print '  Det. results are: %s'%(detected)
                     # update GAtime
@@ -131,7 +131,9 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                     DRM['det_SNR'] = det_SNR
                     DRM['det_fZ'] = det_fZ.to('1/arcsec2')
                     DRM['det_params'] = det_systemParams
+                    DRM['det_mode'] = dict(dmode)
                     DRM['FA_det_status'] = int(FA)
+                    del DRM['det_mode']['inst'], DRM['det_mode']['syst']
                 
                 elif sInd == occ_sInd:
                     # PERFORM CHARACTERIZATION and populate spectra list attribute.
@@ -157,7 +159,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                             self.observation_characterization(sInd, charMode)
 
                     if np.any(characterized):
-                        print '  Char. results are: %s'%(characterized)
+                        print '  Char. results are: %s'%(characterized.T)
                     assert char_intTime != 0, "Integration time can't be 0."
 
                     for j, mode in enumerate(minimodes):
@@ -180,18 +182,12 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                         char_data['char_SNR'] = char_SNR[:,j]
                         char_data['char_fZ'] = char_fZ.to('1/arcsec2')
                         char_data['char_params'] = char_systemParams
-                        # populate the DRM with FA results
-                        char_data['FA_char_status'] = characterized[-1] if FA else 0
-                        char_data['FA_char_SNR'] = char_SNR[-1] if FA else 0.
-                        char_data['FA_char_fEZ'] = self.lastDetected[sInd,1][-1]/u.arcsec**2 if FA else 0./u.arcsec**2
-                        char_data['FA_char_dMag'] = self.lastDetected[sInd,2][-1] if FA else 0.
-                        char_data['FA_char_WA'] = self.lastDetected[sInd,3][-1]*u.arcsec if FA else 0.*u.arcsec
                         DRM['char_info'].append(char_data)
                     DRM['FA_det_status'] = int(FA)
 
                     # add star back into the revisit list
                     if np.any(characterized):
-                        char = np.where(characterized)[0]
+                        char = np.unique(np.where(characterized)[0])
                         pInds = np.where(SU.plan2star == sInd)[0]
                         smin = np.min(SU.s[pInds[char]])
                         pInd_smin = pInds[np.argmin(SU.s[pInds[char]])]
@@ -384,7 +380,9 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                 BW = (1 - ((lam - deltaLam/2)/lam)) * 2
                 minimode['lam'] = lam
                 minimode['BW'] = BW
+                minimode['deltaLam'] = deltaLam
                 minimodes.append(minimode)
+                lam = copy.deepcopy(lam) + deltaLam
 
             if len(planinds) > 0:
                 # initialize arrays for SNR integration
@@ -408,8 +406,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                         # calculate signal and noise (electron count rates)
                         Ss[i,:,j], Ns[i,:,j] = self.calc_signal_noise(sInd, planinds, dt, minimode, 
                                 fZ=fZs[i,j])
-                        # allocate second half of dt
-                        lam += deltaLam
+                    # allocate second half of dt
                     TK.allocate_time(dt/2.)
                 
                 # average output parameters

@@ -375,10 +375,10 @@ class linearJScheduler_DDPC(linearJScheduler):
         FA = (len(det) == len(pInds) + 1)
 
         # initialize outputs, and check if there's anything (planet or FA) to characterize
-        characterizeds = np.zeros((det.size, len(modes)), dtype=int)
+        characterizeds = np.zeros((det.size, nmodes), dtype=int)
         fZ = 0./u.arcsec**2 * np.ones(nmodes)
         systemParams = SU.dump_system_params(sInd) # write current system params by default
-        SNR = np.zeros((len(det),len(modes)))
+        SNR = np.zeros((len(det), nmodes))
         intTime = None
         if det.size == 0: # nothing to characterize
             return characterizeds, fZ, systemParams, SNR, intTime
@@ -465,7 +465,7 @@ class linearJScheduler_DDPC(linearJScheduler):
                 planinds2 = []
             SNRplans = np.zeros((len(planinds)))
             SNRplans2 = np.zeros((len(planinds2)))
-            if len(planinds) > 0 and len(planinds2) > 0:
+            if len(planinds) > 0 or len(planinds2) > 0:
                 # initialize arrays for SNR integration
                 fZs = np.zeros((self.ntFlux, nmodes))/u.arcsec**2
                 systemParamss = np.empty(self.ntFlux, dtype='object')

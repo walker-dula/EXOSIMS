@@ -285,7 +285,6 @@ class tieredScheduler_DD(tieredScheduler):
         
         # Create DRM
         DRM = {}
-
         # Allocate settling time + overhead time
         if old_sInd == old_occ_sInd and old_occ_sInd is not None:
             TK.allocate_time(Obs.settlingTime + charmode['syst']['ohTime'])
