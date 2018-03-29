@@ -162,6 +162,10 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                         print '  Char. results are: %s'%(characterized.T)
                     assert char_intTime != 0, "Integration time can't be 0."
 
+                    # update the occulter wet mass
+                    if OS.haveOcculter == True and char_intTime is not None:
+                        DRM = self.update_occulter_mass(DRM, sInd, char_intTime, 'char')
+
                     for j, mode in enumerate(minimodes):
                         char_data = {}
                         if np.any(occ_pInds):
@@ -171,9 +175,6 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                         char_data['char_mode'] = dict(mode)
                         del char_data['char_mode']['inst'], char_data['char_mode']['syst']
 
-                        # update the occulter wet mass
-                        if OS.haveOcculter == True and char_intTime is not None:
-                            DRM = self.update_occulter_mass(DRM, sInd, char_intTime, 'char')
                         FA = False
                         # populate the DRM with characterization results
                         char_data['char_time'] = char_intTime.to('day') if char_intTime else 0.*u.day
@@ -226,6 +227,7 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                     TK.next_observing_block(dt=obsLength)
                 
                 # With occulter, if spacecraft fuel is depleted, exit loop
+                print(Obs.scMass, Obs.dryMass)
                 if Obs.scMass < Obs.dryMass:
                     print 'Total fuel mass exceeded at %s' %TK.obsEnd.round(2)
                     break

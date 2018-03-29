@@ -1080,7 +1080,7 @@ class SurveySimulation(object):
         # update spacecraft mass
         Obs.scMass = Obs.scMass - mass_used
         DRM['scMass'] = Obs.scMass.to('kg')
-        
+        print(mass_used)
         return DRM
 
     def reset_sim(self, genNewPlanets=True, rewindPlanets=True):

@@ -131,12 +131,13 @@ class linearJScheduler_DDPC(linearJScheduler):
                     char_fZ = np.array([0./u.arcsec**2, 0./u.arcsec**2])
                     char_systemParams = SU.dump_system_params(sInd)
 
+                # update the occulter wet mass
+                if OS.haveOcculter == True and char_intTime is not None:
+                    char_data = self.update_occulter_mass(DRM, sInd, char_intTime, 'char')
+
                 for mode_index, char_mode in enumerate(char_modes):
                     char_data = {}
                     assert char_intTime != 0, "Integration time can't be 0."
-                    # update the occulter wet mass
-                    if OS.haveOcculter == True and char_intTime is not None:
-                        char_data = self.update_occulter_mass(char_data, sInd, char_intTime, 'char')
                     # populate the DRM with characterization results
                     char_data['char_time'] = char_intTime.to('day') if char_intTime else 0.*u.day
                     char_data['char_status'] = characterized[:-1, mode_index] if FA else characterized[:,mode_index]
