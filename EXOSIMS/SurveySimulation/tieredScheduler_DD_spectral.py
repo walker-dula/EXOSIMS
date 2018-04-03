@@ -227,7 +227,6 @@ class tieredScheduler_DD_spectral(tieredScheduler_DD):
                     TK.next_observing_block(dt=obsLength)
                 
                 # With occulter, if spacecraft fuel is depleted, exit loop
-                print(Obs.scMass, Obs.dryMass)
                 if Obs.scMass < Obs.dryMass:
                     print 'Total fuel mass exceeded at %s' %TK.obsEnd.round(2)
                     break

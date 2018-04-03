@@ -14,7 +14,7 @@ import hashlib
 Logger = logging.getLogger(__name__)
 
 class linearJScheduler_DDPC(linearJScheduler):
-    """linearJScheduler_DDPC - linearJScheduler Dual Detection Parallel Charachterization
+    """linearJScheduler_DDPC - linearJScheduler Dual Detection Parallel Characterization
 
     This scheduler inherits from the LJS, but is capable of taking in two detection
     modes and two chracterization modes. Detections can then be performed using a dual-band
@@ -121,8 +121,8 @@ class linearJScheduler_DDPC(linearJScheduler):
                 # PERFORM CHARACTERIZATION and populate spectra list attribute
                 DRM['char_info'] = []
                 if char_modes[0]['SNR'] not in [0, np.inf]:
-                        characterized, char_fZ, char_systemParams, char_SNR, char_intTime = \
-                                self.observation_characterization(sInd, char_modes)
+                    characterized, char_fZ, char_systemParams, char_SNR, char_intTime = \
+                                        self.observation_characterization(sInd, char_modes)
                 else:
                     char_intTime = None
                     lenChar = len(pInds) + 1 if True in FA else len(pInds)
@@ -520,7 +520,7 @@ class linearJScheduler_DDPC(linearJScheduler):
             
             # if only a FA, just save zodiacal brightness in the middle of the integration
             else:
-                totTime = intTime*(mode['timeMultiplier'])
+                totTime = intTime*(mode[0]['timeMultiplier'])
                 TK.allocate_time(totTime/2.)
                 for m_i, mode in enumerate(modes):
                     fZ[m_i] = ZL.fZ(Obs, TL, sInd, TK.currentTimeAbs, mode)[0]
