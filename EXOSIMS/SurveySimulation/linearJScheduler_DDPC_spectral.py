@@ -62,7 +62,6 @@ class linearJScheduler_DDPC_spectral(linearJScheduler_DDPC):
             
             if sInd is not None:
                 cnt += 1
-
                 # get the index of the selected target for the extended list
                 if TK.currentTimeNorm > TK.missionLife and len(self.starExtended) == 0:
                     for i in range(len(self.DRM)):
@@ -107,7 +106,7 @@ class linearJScheduler_DDPC_spectral(linearJScheduler_DDPC):
                 # PERFORM CHARACTERIZATION and populate spectra list attribute
                 DRM['char_info'] = []
                 if char_modes[0]['SNR'] not in [0, np.inf]:
-                    characterized, char_fZ, char_systemParams, char_SNR, char_intTime, minimodes, minimodes2 = \
+                    characterized, char_fZ, char_systemParams, char_SNR, char_intTime, modes = \
                                         self.observation_characterization(sInd, char_modes)
                 else:
                     char_intTime = None
@@ -121,7 +120,7 @@ class linearJScheduler_DDPC_spectral(linearJScheduler_DDPC):
                 if OS.haveOcculter == True and char_intTime is not None:
                     char_data = self.update_occulter_mass(DRM, sInd, char_intTime, 'char')
 
-                for j, mode in enumerate(minimodes + minimodes2):
+                for j, mode in enumerate(modes):
                     char_data = {}
                     assert char_intTime != 0, "Integration time can't be 0."
                     # populate the DRM with characterization results
@@ -245,7 +244,7 @@ class linearJScheduler_DDPC_spectral(linearJScheduler_DDPC):
         SNR = np.zeros((len(det), num_SNR_bins1 + num_SNR_bins2))
         intTime = None
         if len(det) == 0: # nothing to characterize
-            return characterizeds, fZ, systemParams, SNR, intTime
+            return characterized, fZ, systemParams, SNR, intTime, modes
         
         # look for last detected planets that have not been fully characterized
         for m_i, mode in enumerate(modes):
@@ -455,4 +454,6 @@ class linearJScheduler_DDPC_spectral(linearJScheduler_DDPC):
             # self.fullSpectra[m_i][pInds[charplans == 1]] += 1
             # self.partialSpectra[m_i][pInds[charplans == -1]] += 1
 
-        return characterized.astype(int), fZ, systemParams, SNR, intTime, minimodes, minimodes2
+            allmodes = minimodes + minimodes2
+
+        return characterized.astype(int), fZ, systemParams, SNR, intTime, allmodes
