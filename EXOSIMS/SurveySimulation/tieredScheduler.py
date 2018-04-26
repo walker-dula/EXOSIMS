@@ -1,4 +1,5 @@
-from EXOSIMS.Prototypes.SurveySimulation import SurveySimulation
+#from EXOSIMS.Prototypes.SurveySimulation import SurveySimulation
+from EXOSIMS.SurveySimulation.SLSQPScheduler import SLSQPScheduler
 import EXOSIMS, os
 import astropy.units as u
 import astropy.constants as const
@@ -12,7 +13,7 @@ except:
 import time
 from EXOSIMS.util.deltaMag import deltaMag
 
-class tieredScheduler(SurveySimulation):
+class tieredScheduler(SLSQPScheduler):
     """tieredScheduler 
     
     This class implements a tiered scheduler that independantly schedules the observatory
@@ -30,7 +31,8 @@ class tieredScheduler(SurveySimulation):
 
     def __init__(self, coeffs=[2,1,8,4], occHIPs=[], topstars=0, missionPortion=.75, revisit_wait=91.25*u.d, **specs):
         
-        SurveySimulation.__init__(self, **specs)
+        #SurveySimulation.__init__(self, **specs)
+        SLSQPScheduler.__init__(self, **specs)
         
         #verify that coefficients input is iterable 4x1
         if not(isinstance(coeffs,(list,tuple,np.ndarray))) or (len(coeffs) != 4):

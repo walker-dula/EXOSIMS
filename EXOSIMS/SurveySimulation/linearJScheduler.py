@@ -1,11 +1,12 @@
-from EXOSIMS.Prototypes.SurveySimulation import SurveySimulation
+#from EXOSIMS.Prototypes.SurveySimulation import SurveySimulation
+from EXOSIMS.SurveySimulation.SLSQPScheduler import SLSQPScheduler
 import astropy.units as u
 import numpy as np
 import itertools
 import astropy.constants as const
 
 
-class linearJScheduler(SurveySimulation):
+class linearJScheduler(SLSQPScheduler):
     """linearJScheduler 
     
     This class implements the linear cost function scheduler described
@@ -22,7 +23,8 @@ class linearJScheduler(SurveySimulation):
 
     def __init__(self, coeffs=[1,1,2,1], revisit_wait=91.25*u.d, **specs):
         
-        SurveySimulation.__init__(self, **specs)
+        #SurveySimulation.__init__(self, **specs)
+        SLSQPScheduler.__init__(self, **specs)
         
         #verify that coefficients input is iterable 4x1
         if not(isinstance(coeffs,(list,tuple,np.ndarray))) or (len(coeffs) != 4):
