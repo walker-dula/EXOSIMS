@@ -29,7 +29,7 @@ class tieredScheduler(SLSQPScheduler):
             user specified values
     """
 
-    def __init__(self, coeffs=[2,1,8,4], occHIPs=[], topstars=0, missionPortion=.75, revisit_wait=91.25*u.d, **specs):
+    def __init__(self, coeffs=[2,1,8,4], occHIPs=[], topstars=0, missionPortion=.75, revisit_wait=91.25, **specs):
         
         #SurveySimulation.__init__(self, **specs)
         SLSQPScheduler.__init__(self, **specs)
@@ -84,7 +84,7 @@ class tieredScheduler(SLSQPScheduler):
         self.coeff_data_a4 = []
         self.coeff_time = []
 
-        self.revisit_wait = revisit_wait
+        self.revisit_wait = revisit_wait * u.d
         self.no_dets = np.ones(self.TargetList.nStars, dtype=bool)
 
 
@@ -1014,9 +1014,10 @@ class tieredScheduler(SLSQPScheduler):
                 dt_rev = self.starRevisit[:,1]*u.day - tmpCurrentTimeNorm#absolute temporal spacing between revisit and now.
 
                 #return indices of all revisits within a threshold dt_max of revisit day and indices of all revisits with no detections past the revisit time
-                ind_rev = [int(x) for x in self.starRevisit[np.abs(dt_rev) < self.dt_max, 0] if (x in sInds and self.no_dets[int(x)] == False)]
-                ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0] if (x in sInds and self.no_dets[int(x)] == True)]
-                tovisit[ind_rev] = (self.starVisits[ind_rev] < self.nVisitsMax)#IF duplicates exist in ind_rev, the second occurence takes priority
+                # ind_rev = [int(x) for x in self.starRevisit[np.abs(dt_rev) < self.dt_max, 0] if (x in sInds and self.no_dets[int(x)] == False)]
+                # ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0] if (x in sInds and self.no_dets[int(x)] == True)]
+                # tovisit[ind_rev] = (self.starVisits[ind_rev] < self.nVisitsMax)#IF duplicates exist in ind_rev, the second occurence takes priority
+                ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0]]
                 tovisit[ind_rev2] = (self.starVisits[ind_rev2] < self.nVisitsMax)
             sInds = np.where(tovisit)[0]
 
@@ -1058,12 +1059,12 @@ class tieredScheduler(SLSQPScheduler):
             T = 2.*np.pi*np.sqrt(sp**3/mu)
             t_rev = TK.currentTimeNorm + 0.75*T
         # if no detections then schedule revisit based off of revisit_weight
-        if not np.any(det):
-            t_rev = TK.currentTimeNorm + self.revisit_wait
-            self.no_dets[sInd] = True
-        else:
-            self.no_dets[sInd] = False
-
+        # if not np.any(det):
+        #     t_rev = TK.currentTimeNorm + self.revisit_wait
+        #     self.no_dets[sInd] = True
+        # else:
+        #     self.no_dets[sInd] = False
+        t_rev = TK.currentTimeNorm + self.revisit_wait
         # finally, populate the revisit list (NOTE: sInd becomes a float)
         revisit = np.array([sInd, t_rev.to('day').value])
         if self.starRevisit.size == 0:#If starRevisit has nothing in it
