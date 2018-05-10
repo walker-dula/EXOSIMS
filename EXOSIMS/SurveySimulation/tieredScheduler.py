@@ -425,8 +425,8 @@ class tieredScheduler(SLSQPScheduler):
                             (occ_endTimesNorm <= TK.OBendTimes[TK.OBnumber]))[0]
 
             if len(sInds) > 0:  
-                intTimes[sInds] = self.calc_targ_intTime(sInds, startTimes[sInds], detmode)
-
+                # intTimes[sInds] = self.calc_targ_intTime(sInds, startTimes[sInds], detmode)
+                intTimes[sInds] = self.calc_targ_intTime(sInds,startTimes[sInds],detmode)
                 totTimes = intTimes*detmode['timeMultiplier']
                 # end times
                 endTimes = startTimes + totTimes
@@ -447,7 +447,7 @@ class tieredScheduler(SLSQPScheduler):
             
             # 4/ Filter out all previously (more-)visited targets, unless in 
             # revisit list, with time within some dt of start (+- 1 week)
-            sInds = self.revisitFilter(sInds,TK.currentTimeNorm)
+            sInds = self.revisitFilter(sInds, TK.currentTimeNorm)
 
             # revisit list, with time after start
             if np.any(occ_sInds):
@@ -1024,7 +1024,7 @@ class tieredScheduler(SLSQPScheduler):
                 # ind_rev = [int(x) for x in self.starRevisit[np.abs(dt_rev) < self.dt_max, 0] if (x in sInds and self.no_dets[int(x)] == False)]
                 # ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0] if (x in sInds and self.no_dets[int(x)] == True)]
                 # tovisit[ind_rev] = (self.starVisits[ind_rev] < self.nVisitsMax)#IF duplicates exist in ind_rev, the second occurence takes priority
-                ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0]]
+                ind_rev2 = [int(x) for x in self.starRevisit[dt_rev < 0*u.d, 0] if (x in sInds)]
                 tovisit[ind_rev2] = (self.starVisits[ind_rev2] < self.nVisitsMax)
             sInds = np.where(tovisit)[0]
 
