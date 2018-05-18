@@ -63,6 +63,7 @@ class tieredScheduler(SLSQPScheduler):
 
         TL = self.TargetList
         self.occ_arrives = None # The timestamp at which the occulter finishes slewing
+        self.occ_starRevisit = np.array([])
         self.occ_starVisits = np.zeros(TL.nStars,dtype=int) # The number of times each star was visited by the occulter
         self.phase1_end = None # The designated end time for the first observing phase
         self.is_phase1 = True
@@ -203,6 +204,14 @@ class tieredScheduler(SLSQPScheduler):
                 elif sInd == occ_sInd:
                     # PERFORM CHARACTERIZATION and populate spectra list attribute.
                     # First store fEZ, dMag, WA, and characterization mode
+
+                    # clean up revisit list when one occurs to prevent repeats
+                    if np.any(self.occ_starRevisit) and np.any(np.where(self.occ_starRevisit[:,0] == float(occ_sInd))):
+                        s_revs = np.where(self.occ_starRevisit[:,0] == float(occ_sInd))[0]
+                        dt_max = 1.*u.week
+                        t_revs = np.where(self.occ_starRevisit[:,1]*u.day - TK.currentTimeNorm < dt_max)[0]
+                        self.occ_starRevisit = np.delete(self.occ_starRevisit, np.intersect1d(s_revs, t_revs),0)
+
                     occ_pInds = np.where(SU.plan2star == occ_sInd)[0]
                     sInd = occ_sInd
 
@@ -262,10 +271,10 @@ class tieredScheduler(SLSQPScheduler):
                         T = 2.*np.pi*np.sqrt(sp**3/mu)
                         t_rev = TK.currentTimeNorm + T/2.
                         revisit = np.array([sInd, t_rev.to('day').value])
-                        if self.starRevisit.size == 0:
-                            self.starRevisit = np.array([revisit])
+                        if self.occ_starRevisit.size == 0:
+                            self.occ_starRevisit = np.array([revisit])
                         else:
-                            self.starRevisit = np.vstack((self.starRevisit, revisit))
+                            self.occ_starRevisit = np.vstack((self.occ_starRevisit, revisit))
 
                 self.goal_GAtime = self.GA_percentage * TK.currentTimeNorm.to('day')
                 goal_GAdiff = self.goal_GAtime - self.GAtime
@@ -356,6 +365,10 @@ class tieredScheduler(SLSQPScheduler):
         self.ao = Obs.thrust/Obs.scMass
         slewTime_fac = (2.*Obs.occulterSep/np.abs(self.ao)/(Obs.defburnPortion/2. \
                 - Obs.defburnPortion**2/4.)).decompose().to('d2')
+
+        # Star indices that correspond with the given HIPs numbers for the occulter
+        # XXX ToDo: print out HIPs that don't show up in TL
+        HIP_sInds = np.where(np.in1d(TL.Name, self.occHIPs))[0]
         
         cnt = 0
         # Now, start to look for available targets
@@ -392,7 +405,6 @@ class tieredScheduler(SLSQPScheduler):
             occ_startTimesNorm = TK.currentTimeNorm + slewTime
             kogoodStart = Obs.keepout(TL, sInds, occ_startTimes, charmode)
             occ_sInds = sInds[np.where(kogoodStart)[0]]
-            HIP_sInds = np.where(np.in1d(TL.Name, self.occHIPs))[0]
             occ_sInds = occ_sInds[np.where(np.in1d(occ_sInds, HIP_sInds))[0]]
 
             startTimes = TK.currentTimeAbs + np.zeros(TL.nStars)*u.d
@@ -405,17 +417,17 @@ class tieredScheduler(SLSQPScheduler):
                 if self.is_phase1 is True:
                     print 'Entering detection phase 2: target list for occulter expanded'
                     self.is_phase1 = False
-                occ_sInds = np.setdiff1d(occ_sInds, sInds[np.where((self.starVisits[sInds] > 5) & 
+                occ_sInds = np.setdiff1d(occ_sInds, sInds[np.where((self.starVisits[sInds] > self.nVisitsMax) & 
                                                                    (self.occ_starVisits[sInds] == 0))[0]])
 
             fEZ = ZL.fEZ0
             WA = self.WAint[0]
             # 2/ calculate integration times for ALL preselected targets, 
             # and filter out totTimes > integration cutoff
-            if len(occ_sInds) > 0:  
-                occ_intTimes[occ_sInds] = self.calc_int_inflection(occ_sInds, fEZ, occ_startTimes, 
-                                                                    WA, charmode, ischar=True)
-                #occ_intTimes[occ_sInds] = self.calc_targ_intTime(occ_sInds, occ_startTimes[occ_sInds], charmode)
+            if len(occ_sInds) > 0:
+                print(occ_sInds)
+                occ_intTimes[occ_sInds] = self.calc_targ_intTime(occ_sInds, occ_startTimes[occ_sInds], charmode)
+                print(occ_intTimes[occ_sInds])
                 totTimes = occ_intTimes*charmode['timeMultiplier']
                 # end times
                 occ_endTimes = occ_startTimes + totTimes
@@ -423,6 +435,7 @@ class tieredScheduler(SLSQPScheduler):
                 # indices of observable stars
                 occ_sInds = np.where((totTimes > 0) & (totTimes <= OS.intCutoff) & 
                             (occ_endTimesNorm <= TK.OBendTimes[TK.OBnumber]))[0]
+            print(occ_sInds)
 
             if len(sInds) > 0:  
                 # intTimes[sInds] = self.calc_targ_intTime(sInds, startTimes[sInds], detmode)
@@ -452,10 +465,10 @@ class tieredScheduler(SLSQPScheduler):
             # revisit list, with time after start
             if np.any(occ_sInds):
                 occ_tovisit[occ_sInds] = (self.occ_starVisits[occ_sInds] == self.occ_starVisits[occ_sInds].min())
-                if self.starRevisit.size != 0:
+                if self.occ_starRevisit.size != 0:
                     dt_max = 1.*u.week
-                    dt_rev = TK.currentTimeNorm - self.starRevisit[:,1]*u.day
-                    ind_rev = [int(x) for x in self.starRevisit[dt_rev > 0, 0] if x in occ_sInds]
+                    dt_rev = TK.currentTimeNorm - self.occ_starRevisit[:,1]*u.day
+                    ind_rev = [int(x) for x in self.occ_starRevisit[dt_rev > 0, 0] if x in occ_sInds]
                     occ_tovisit[ind_rev] = True
                 occ_sInds = np.where(occ_tovisit)[0]
 
@@ -487,7 +500,7 @@ class tieredScheduler(SLSQPScheduler):
                 self.starVisits[sInd] += 1
 
             # if the starshade has arrived at its destination, or it is the first observation
-            if np.any(occ_sInds) or old_occ_sInd is None:
+            if np.any(occ_sInds):
                 if old_occ_sInd is None or ((TK.currentTimeAbs + t_det) >= self.occ_arrives and self.ready_to_update):
                     occ_sInd = self.choose_next_occulter_target(old_occ_sInd, occ_sInds, intTimes)
                     if old_occ_sInd is None:
@@ -553,7 +566,7 @@ class tieredScheduler(SLSQPScheduler):
         TK = self.TimeKeeping
 
         # reshape sInds, store available top9 sInds
-        occ_sInds = np.array(occ_sInds,ndmin=1)
+        occ_sInds = np.array(occ_sInds, ndmin=1)
         top_HIPs = self.occHIPs[:self.topstars]
         top_sInds = np.intersect1d(np.where(np.in1d(TL.Name, top_HIPs))[0], occ_sInds)
 
@@ -992,14 +1005,14 @@ class tieredScheduler(SLSQPScheduler):
 
         # finally, populate the revisit list (NOTE: sInd becomes a float)
         revisit = np.array([sInd, t_rev.to('day').value])
-        if self.starRevisit.size == 0:
-            self.starRevisit = np.array([revisit])
+        if self.occ_starRevisit.size == 0:
+            self.occ_starRevisit = np.array([revisit])
         else:
-            revInd = np.where(self.starRevisit[:,0] == sInd)[0]
+            revInd = np.where(self.occ_starRevisit[:,0] == sInd)[0]
             if revInd.size == 0:
-                self.starRevisit = np.vstack((self.starRevisit, revisit))
+                self.occ_starRevisit = np.vstack((self.occ_starRevisit, revisit))
             else:
-                self.starRevisit[revInd,1] = revisit[1]
+                self.occ_starRevisit[revInd,1] = revisit[1]
 
         return characterized.astype(int), fZ, systemParams, SNR, intTime
 
