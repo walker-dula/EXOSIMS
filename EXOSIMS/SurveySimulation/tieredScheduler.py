@@ -965,6 +965,8 @@ class tieredScheduler(SurveySimulation):
             systemParamss = np.empty(self.ntFlux, dtype='object')
             Ss = np.zeros((self.ntFlux, len(pInds)))
             Ns = np.zeros((self.ntFlux, len(pInds)))
+            Ss2 = np.zeros((self.ntFlux, len(pInds)))
+            Ns2 = np.zeros((self.ntFlux, len(pInds)))
             # integrate the signal (planet flux) and noise
             timePlus = Obs.settlingTime.copy() + mode['syst']['ohTime'].copy()#accounts for the time since the current time
             for i in range(self.ntFlux):
@@ -991,8 +993,8 @@ class tieredScheduler(SurveySimulation):
             # calculate SNR
             S = Ss.sum(0)
             N = Ns.sum(0)
-            S2 = Ss.sum(0)
-            N2 = Ns.sum(0)
+            S2 = Ss2.sum(0)
+            N2 = Ns2.sum(0)
             SNR[N > 0] = S[N > 0]/N[N > 0]
             SNR2[N2 > 0] = S2[N2 > 0]/N2[N2 > 0]
 
